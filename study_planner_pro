@@ -1,0 +1,749 @@
+from tkinter import messagebox, filedialog
+import customtkinter as ctk
+from tkinter import scrolledtext
+from datetime import datetime
+import os
+import mysql.connector
+import re
+import google.generativeai as genai
+ctk.set_appearance_mode("System")  
+ctk.set_default_color_theme("blue")  
+class GeminiAIAgent:
+    def __init__(self, api_key):
+        try:
+            genai.configure(api_key=api_key)
+            self.model = genai.GenerativeModel('gemini-pro')
+        except Exception as e:
+            ctk.messagebox.showerror("Gemini AI Error", f"Failed to initialize: {e}")
+            self.model = None
+    def generate_study_advice(self, context):
+        if not self.model:
+            return "Gemini AI is not initialized."
+        try:
+            prompt = f"""
+            Provide personalized study advice based on the following context:
+            {context}
+            Your advice should be:
+        
+
+            
+            - Specific and actionable
+            - Tailored to the student's needs
+            - Encouragement-focused
+            - Concise but comprehensive
+            """
+            
+            response = self.model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            return f"Error generating advice: {e}"
+
+    def create_ai_assistant_ui(self, root, user_name):
+        ai_window = ctk.CTkToplevel(root)
+        ai_window.title(f"AI Study Assistant - {user_name}")
+        ai_window.geometry("500x600")
+        
+        main_frame = ctk.CTkFrame(ai_window)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        ctk.CTkLabel(main_frame, text="AI Study Assistant", 
+                    font=ctk.CTkFont(size=20, weight="bold")).pack(pady=15)
+        
+        ctk.CTkLabel(main_frame, text="Describe your study situation:").pack(pady=5)
+        self.context_entry = ctk.CTkTextbox(main_frame, height=120)
+        self.context_entry.pack(fill="x", pady=5)
+        
+        self.response_display = ctk.CTkTextbox(main_frame, height=300, wrap="word")
+        self.response_display.pack(fill="both", expand=True, pady=10)
+        
+        button_frame = ctk.CTkFrame(main_frame)
+        button_frame.pack(fill="x", pady=10)
+        
+        ctk.CTkButton(button_frame, text="Get Advice", 
+                     command=self.get_ai_advice).pack(side="left", padx=5)
+        ctk.CTkButton(button_frame, text="Close", 
+                     command=ai_window.destroy, fg_color="#D35B58").pack(side="right", padx=5)
+
+    def get_ai_advice(self):
+        context = self.context_entry.get("1.0", "end").strip()
+        if not context:
+            ctk.messagebox.showwarning("Input Error", "Please describe your study situation.")
+            return
+
+        self.response_display.delete("1.0", "end")
+        self.response_display.insert("end", "Generating advice... Please wait.")
+        
+        advice = self.generate_study_advice(context)
+        self.response_display.delete("1.0", "end")
+        self.response_display.insert("end", advice)
+
+conn = mysql.connector.connect(
+    host="localhost",
+    user="root",
+    password="abc@123",
+    database="study_planner"
+)
+cursor = conn.cursor()
+
+class StudyPlannerApp:
+    def __init__(self):
+        self.root = ctk.CTk()
+        self.root.title("Study Planner Pro")
+        self.root.geometry("1200x800")
+        
+        self.user_id = None
+        self.user_name = None
+        self.points = 0
+        self.streak_days = 0
+        self.tasks = []
+        self.assignments = []
+        self.notes = []
+        self.documents = []
+        self.gemini_api_key = 'AIzaSyDnQ3o6LKc_UCPqiYGGht6aOMX2UrA7XxQ'
+        self.is_logged_in = False
+        self.current_note_id = None
+        
+        self.create_main_container()
+        self.splash_screen()
+
+    def create_main_container(self):
+        self.main_frame = ctk.CTkFrame(self.root)
+        self.main_frame.pack(fill="both", expand=True)
+        
+        self.sidebar = ctk.CTkFrame(self.main_frame, width=220, corner_radius=0)
+        
+        self.content_area = ctk.CTkFrame(self.main_frame)
+        self.content_area.pack(side="right", fill="both", expand=True, padx=10, pady=10)
+        
+        self.status_bar = ctk.CTkFrame(self.root, height=30, corner_radius=0)
+        self.status_bar.pack(side="bottom", fill="x")
+        ctk.CTkLabel(self.status_bar, text="Ready").pack(side="left", padx=10)
+
+    def clear_content(self):
+        for widget in self.content_area.winfo_children():
+            widget.destroy()
+
+    def splash_screen(self):
+        self.clear_content()
+        splash_frame = ctk.CTkFrame(self.content_area)
+        splash_frame.pack(expand=True, fill="both")
+        
+        ctk.CTkLabel(splash_frame, text="Study Planner Pro",
+                    font=ctk.CTkFont(size=28, weight="bold")).pack(pady=50)
+        
+        progress = ctk.CTkProgressBar(splash_frame, mode="indeterminate")
+        progress.pack(pady=20)
+        progress.start()
+        
+        self.root.after(2000, self.main_menu)
+
+    def main_menu(self):
+        self.clear_content()
+        menu_frame = ctk.CTkFrame(self.content_area, fg_color="transparent")
+        menu_frame.pack(expand=True, pady=50)
+        
+        ctk.CTkLabel(menu_frame, text="Study Planner Pro", 
+                    font=ctk.CTkFont(size=24, weight="bold")).pack(pady=30)
+        
+        btn = ctk.CTkButton(menu_frame, text="Register", 
+                           command=self.register_user, width=200, height=40)
+        btn.pack(pady=10)
+        
+        btn = ctk.CTkButton(menu_frame, text="Login", 
+                           command=self.login_user, width=200, height=40)
+        btn.pack(pady=10)
+
+    def build_sidebar(self):
+        for widget in self.sidebar.winfo_children():
+            widget.destroy()
+        
+        ctk.CTkLabel(self.sidebar, text="Navigation", 
+                    font=ctk.CTkFont(weight="bold")).pack(pady=15)
+        
+        nav_buttons = [
+            ("🏠 Home", self.dashboard),
+            ("⭐ Daily Task", self.daily_task),
+            ("📚 Tasks", self.view_tasks),
+            ("📅 Assignments", self.view_assignments),
+            ("⏱️ Timer", self.focus_timer),
+            ("📊 Progress", self.view_rewards),
+            ("📝 Notes", self.open_notes_section),
+            ("📁 Documents", self.view_documents),
+            ("🤖 AI Assist", self.ai_assistant),
+            ("📈 Analysis", self.analysis_section),
+            ("🚪 Logout", self.logout)
+        ]
+        
+        for text, cmd in nav_buttons:
+            btn = ctk.CTkButton(self.sidebar, text=text, command=cmd,
+                            fg_color="transparent", hover_color=("#3B8ED0", "#1F6AA5"),
+                            anchor="w", height=40)
+            btn.pack(fill="x", padx=10, pady=2)
+
+    def fetch_user_data(self):
+        self.fetch_user_tasks()
+        self.fetch_user_notes()
+        self.fetch_user_documents()
+        
+    def fetch_user_tasks(self):
+        query = "SELECT task_id, task_name, completed FROM tasks WHERE user_id = %s"
+        cursor.execute(query, (self.user_id,))
+        self.tasks = [{"task_id": row[0], "name": row[1], "completed": row[2]} for row in cursor.fetchall()]
+        
+    def fetch_user_notes(self):
+        query = "SELECT note_id, content FROM notes WHERE user_id = %s ORDER BY created_at DESC"
+        cursor.execute(query, (self.user_id,))
+        self.notes = [{"note_id": row[0], "content": row[1]} for row in cursor.fetchall()]
+        
+    def fetch_user_documents(self):
+        query = "SELECT doc_id, file_path FROM documents WHERE user_id = %s"
+        cursor.execute(query, (self.user_id,))
+        self.documents = [{"doc_id": row[0], "path": row[1]} for row in cursor.fetchall()]
+
+    def daily_task(self):
+        self.clear_content()
+        self.fetch_daily_tasks()
+        
+        daily_frame = ctk.CTkFrame(self.content_area)
+        daily_frame.pack(pady=20, padx=20, fill="both", expand=True)
+        
+        ctk.CTkLabel(daily_frame, text="📅 Daily Tasks", 
+                    font=ctk.CTkFont(size=20, weight="bold")).pack(pady=10)
+        
+        add_frame = ctk.CTkFrame(daily_frame, fg_color="transparent")
+        add_frame.pack(fill="x", pady=10)
+        
+        self.new_task_entry = ctk.CTkEntry(add_frame, placeholder_text="New task...")
+        self.new_task_entry.pack(side="left", fill="x", expand=True, padx=5)
+        
+        ctk.CTkButton(add_frame, text="Add", width=80,
+                    command=self.add_new_daily_task).pack(side="left", padx=5)
+        
+        tasks_container = ctk.CTkScrollableFrame(daily_frame, height=300)
+        tasks_container.pack(fill="both", expand=True, pady=10)
+        
+        for task in self.daily_tasks:
+            task_frame = ctk.CTkFrame(tasks_container, fg_color="transparent")
+            task_frame.pack(fill="x", pady=2)
+            
+            checkbox = ctk.CTkCheckBox(task_frame, text=task['name'], 
+                                    command=lambda t=task: self.toggle_task(t))
+            checkbox.pack(side="left", padx=5)
+            checkbox.select() if task['completed'] else checkbox.deselect()
+            
+            ctk.CTkButton(task_frame, text="🗑️", width=40,
+                        command=lambda t=task['task_id']: self.delete_daily_task(t),
+                        fg_color="transparent", hover_color="#D35B58").pack(side="right")
+        
+        streak_frame = ctk.CTkFrame(daily_frame)
+        streak_frame.pack(fill="x", pady=10)
+        
+        ctk.CTkLabel(streak_frame, text=f"🔥 Current Streak: {self.streak_days} days",
+                    font=ctk.CTkFont(weight="bold")).pack(side="left", padx=10)
+        
+        ctk.CTkButton(streak_frame, text="Back", command=self.dashboard,
+                    fg_color="gray").pack(side="right", padx=5)
+    
+    def mark_task_completed(self):
+        self.streak_days += 1
+        self.points += 10
+        messagebox.showinfo("Task Completed", "Streak extended! +10 points!")
+        self.dashboard()
+
+    def add_task(self):
+        self.clear_content()
+        form_frame = ctk.CTkFrame(self.content_area)
+        form_frame.pack(pady=50, padx=20, fill="both", expand=True)
+        
+        ctk.CTkLabel(form_frame, text="Add New Task", 
+                    font=ctk.CTkFont(size=20, weight="bold")).pack(pady=20)
+        
+        ctk.CTkLabel(form_frame, text="Task Name:").pack(pady=5)
+        task_entry = ctk.CTkEntry(form_frame)
+        task_entry.pack(pady=5, padx=20, fill="x")
+        
+        def save_task():
+            task_name = task_entry.get()
+            if task_name:
+                query = "INSERT INTO tasks (user_id, task_name) VALUES (%s, %s)"
+                cursor.execute(query, (self.user_id, task_name))
+                conn.commit()
+                self.fetch_user_tasks()
+                messagebox.showinfo("Success", "Task added successfully!")
+                self.view_tasks()
+            else:
+                messagebox.showerror("Error", "Task name cannot be empty!")
+        
+        ctk.CTkButton(form_frame, text="Back", 
+                     command=self.dashboard, fg_color="gray").pack(side="left", padx=10, pady=10)
+        ctk.CTkButton(form_frame, text="Add Task", 
+                     command=save_task, fg_color="#2CC985").pack(side="right", padx=10, pady=10)
+
+    def view_tasks(self):
+        self.clear_content()
+        tasks_frame = ctk.CTkFrame(self.content_area)
+        tasks_frame.pack(pady=50, padx=20, fill="both", expand=True)
+        
+        ctk.CTkLabel(tasks_frame, text="Your Tasks", 
+                    font=ctk.CTkFont(size=20, weight="bold")).pack(pady=20)
+        
+        for task in self.tasks:
+            frame = ctk.CTkFrame(tasks_frame)
+            frame.pack(fill="x", pady=5)
+            
+            status = "✔️" if task["completed"] else "❌"
+            ctk.CTkLabel(frame, text=f"{status} {task['name']}").pack(side="left", padx=10)
+            
+            btn_frame = ctk.CTkFrame(frame)
+            btn_frame.pack(side="right")
+            
+            if not task["completed"]:
+                ctk.CTkButton(btn_frame, text="Complete", 
+                             command=lambda t=task["task_id"]: self.complete_task(t), 
+                             fg_color="#2CC985").pack(side="left", padx=2)
+            ctk.CTkButton(btn_frame, text="Delete", 
+                         command=lambda t=task["task_id"]: self.delete_task(t), 
+                         fg_color="#D35B58").pack(side="left", padx=2)
+        
+        ctk.CTkButton(tasks_frame, text="Add New", 
+                     command=self.add_task, fg_color="#2CC985").pack(pady=10)
+        ctk.CTkButton(tasks_frame, text="Back", 
+                     command=self.dashboard, fg_color="gray").pack(pady=10)
+
+    def complete_task(self, task_id):
+        query = "UPDATE tasks SET completed = TRUE WHERE task_id = %s"
+        cursor.execute(query, (task_id,))
+        conn.commit()
+        self.points += 5
+        self.fetch_user_tasks()
+        self.view_tasks()
+
+    def delete_task(self, task_id):
+        query = "DELETE FROM tasks WHERE task_id = %s"
+        cursor.execute(query, (task_id,))
+        conn.commit()
+        self.fetch_user_tasks()
+        self.view_tasks()
+
+    def add_assignment(self):
+        self.clear_content()
+        form_frame = ctk.CTkFrame(self.content_area)
+        form_frame.pack(pady=50, padx=20, fill="both", expand=True)
+        
+        ctk.CTkLabel(form_frame, text="Add Assignment", 
+                    font=ctk.CTkFont(size=20, weight="bold")).pack(pady=20)
+        
+        ctk.CTkLabel(form_frame, text="Assignment Name:").pack(pady=5)
+        name_entry = ctk.CTkEntry(form_frame)
+        name_entry.pack(pady=5, padx=20, fill="x")
+        
+        ctk.CTkLabel(form_frame, text="Due Date (YYYY-MM-DD):").pack(pady=5)
+        date_entry = ctk.CTkEntry(form_frame)
+        date_entry.pack(pady=5, padx=20, fill="x")
+        
+        def save_assignment():
+            name = name_entry.get()
+            due_date = date_entry.get()
+            if not name or not due_date:
+                messagebox.showerror("Error", "All fields are required!")
+                return
+            try:
+                datetime.strptime(due_date, "%Y-%m-%d")
+            except ValueError:
+                messagebox.showerror("Error", "Invalid date format! Use YYYY-MM-DD.")
+                return
+            
+            query = "INSERT INTO assignments (user_id, assignment_name, due_date) VALUES (%s, %s, %s)"
+            cursor.execute(query, (self.user_id, name, due_date))
+            conn.commit()
+            self.assignments.append({"name": name, "due_date": due_date, "completed": False})
+            messagebox.showinfo("Success", "Assignment added!")
+            self.view_assignments()
+        
+        ctk.CTkButton(form_frame, text="Back", 
+                     command=self.dashboard, fg_color="gray").pack(side="left", padx=10, pady=10)
+        ctk.CTkButton(form_frame, text="Save", 
+                     command=save_assignment, fg_color="#2CC985").pack(side="right", padx=10, pady=10)
+
+    def view_assignments(self):
+        self.clear_content()
+        assignments_frame = ctk.CTkFrame(self.content_area)
+        assignments_frame.pack(pady=50, padx=20, fill="both", expand=True)
+        
+        ctk.CTkLabel(assignments_frame, text="Your Assignments", 
+                    font=ctk.CTkFont(size=20, weight="bold")).pack(pady=20)
+        
+        cursor.execute("SELECT assignment_name, due_date FROM assignments WHERE user_id=%s", (self.user_id,))
+        assignments = cursor.fetchall()
+        
+        for idx, (name, due_date) in enumerate(assignments):
+            frame = ctk.CTkFrame(assignments_frame)
+            frame.pack(fill="x", pady=5)
+            ctk.CTkLabel(frame, text=f"{name} (Due: {due_date})").pack(side="left", padx=10)
+        
+        ctk.CTkButton(assignments_frame, text="Add New", 
+                     command=self.add_assignment, fg_color="#2CC985").pack(pady=10)
+        ctk.CTkButton(assignments_frame, text="Back", 
+                     command=self.dashboard, fg_color="gray").pack(pady=10)
+
+    def focus_timer(self):
+        self.clear_content()
+        timer_frame = ctk.CTkFrame(self.content_area)
+        timer_frame.pack(pady=50, padx=20, fill="both", expand=True)
+        
+        ctk.CTkLabel(timer_frame, text="Pomodoro Technique", 
+                    font=ctk.CTkFont(size=20, weight="bold")).pack(pady=20)
+        
+        self.time_display = ctk.CTkLabel(timer_frame, text="25:00", 
+                                        font=ctk.CTkFont(size=36, weight="bold"))
+        self.time_display.pack(pady=20)
+        
+        controls = ctk.CTkFrame(timer_frame)
+        controls.pack(pady=20)
+        
+        ctk.CTkButton(controls, text="Start", 
+                     command=self.start_timer, fg_color="#2CC985").pack(side="left", padx=10)
+        ctk.CTkButton(controls, text="Reset", 
+                     command=lambda: self.update_timer(25*60), fg_color="gray").pack(side="left", padx=10)
+        ctk.CTkButton(controls, text="Back", 
+                     command=self.dashboard, fg_color="#D35B58").pack(side="left", padx=10)
+
+    def start_timer(self):
+        self.update_timer(25*60)
+
+    def update_timer(self, seconds):
+        mins, secs = divmod(seconds, 60)
+        self.time_display.configure(text=f"{mins:02}:{secs:02}")
+        if seconds > 0:
+            self.root.after(1000, self.update_timer, seconds-1)
+        else:
+            messagebox.showinfo("Time's Up", "Great job! Take a break!")
+            self.streak_days += 1
+            self.points += 10
+            self.dashboard()
+
+    def view_rewards(self):
+        self.clear_content()
+        rewards_frame = ctk.CTkFrame(self.content_area)
+        rewards_frame.pack(pady=50, padx=20, fill="both", expand=True)
+        
+        ctk.CTkLabel(rewards_frame, text="Your Progress", 
+                    font=ctk.CTkFont(size=20, weight="bold")).pack(pady=20)
+        
+        stats = [
+            ("Total Points", str(self.points), "#3B8ED0"),
+            ("Current Streak", f"{self.streak_days} days", "#2CC985"),
+            ("Tasks Completed", f"{sum(task['completed'] for task in self.tasks)}/{len(self.tasks)}", "#D3A558")
+        ]
+        
+        for label, value, color in stats:
+            stat_frame = ctk.CTkFrame(rewards_frame, fg_color=color, corner_radius=10)
+            stat_frame.pack(fill="x", padx=10, pady=10)
+            
+            ctk.CTkLabel(stat_frame, text=label, 
+                        font=ctk.CTkFont(weight="bold")).pack(pady=5)
+            ctk.CTkLabel(stat_frame, text=value, 
+                        font=ctk.CTkFont(size=24)).pack(pady=10)
+        
+        ctk.CTkButton(rewards_frame, text="Back", 
+                    command=self.dashboard, fg_color="gray").pack(pady=10)
+
+    def notes_section(self):
+        self.clear_content()
+        notes_frame = ctk.CTkFrame(self.content_area)
+        notes_frame.pack(pady=50, padx=20, fill="both", expand=True)
+        
+        ctk.CTkLabel(notes_frame, text="Your Notes", 
+                    font=ctk.CTkFont(size=20, weight="bold")).pack(pady=20)
+        
+        note_entry = ctk.CTkTextbox(notes_frame, height=120)
+        note_entry.pack(pady=10, fill="x")
+        
+        if self.current_note_id:
+            note = next((n for n in self.notes if n["note_id"] == self.current_note_id), None)
+            if note:
+                note_entry.insert("1.0", note["content"])
+        
+        btn_frame = ctk.CTkFrame(notes_frame)
+        btn_frame.pack(pady=10)
+        
+        def save_note():
+            content = note_entry.get("1.0", "end").strip()
+            if content:
+                if self.current_note_id:
+                    query = "UPDATE notes SET content = %s WHERE note_id = %s"
+                    cursor.execute(query, (content, self.current_note_id))
+                else:
+                    query = "INSERT INTO notes (user_id, content) VALUES (%s, %s)"
+                    cursor.execute(query, (self.user_id, content))
+                conn.commit()
+                self.fetch_user_notes()
+                self.current_note_id = None
+                self.notes_section()
+        
+        def delete_note(note_id):
+            query = "DELETE FROM notes WHERE note_id = %s"
+            cursor.execute(query, (note_id,))
+            conn.commit()
+            self.fetch_user_notes()
+            self.notes_section()
+        
+        ctk.CTkButton(btn_frame, text="Save Note", 
+                     command=save_note, fg_color="#2CC985").pack(side="left", padx=5)
+        ctk.CTkButton(btn_frame, text="Clear", 
+                     command=lambda: note_entry.delete("1.0", "end"), fg_color="gray").pack(side="left", padx=5)
+        
+        for note in self.notes:
+            frame = ctk.CTkFrame(notes_frame)
+            frame.pack(fill="x", pady=5)
+            
+            ctk.CTkLabel(frame, text=note["content"], wraplength=400).pack(side="left", fill="x", expand=True)
+            
+            btn_frame = ctk.CTkFrame(frame)
+            btn_frame.pack(side="right")
+            
+            ctk.CTkButton(btn_frame, text="Edit", 
+                         command=lambda n=note: self.edit_note(n), 
+                         fg_color="#3B8ED0").pack(side="left", padx=2)
+            ctk.CTkButton(btn_frame, text="Delete", 
+                         command=lambda n=note: delete_note(n["note_id"]), 
+                         fg_color="#D35B58").pack(side="left", padx=2)
+        
+        ctk.CTkButton(notes_frame, text="Back", 
+                     command=self.dashboard, fg_color="gray").pack(pady=10)
+
+    def edit_note(self, note):
+        self.current_note_id = note["note_id"]
+        self.notes_section()
+
+    def upload_document(self):
+        file_path = filedialog.askopenfilename()
+        if file_path:
+            query = "INSERT INTO documents (user_id, file_path) VALUES (%s, %s)"
+            cursor.execute(query, (self.user_id, file_path))
+            conn.commit()
+            self.fetch_user_documents()
+            messagebox.showinfo("Success", "Document uploaded!")
+
+    def view_documents(self):
+        self.clear_content()
+        docs_frame = ctk.CTkFrame(self.content_area)
+        docs_frame.pack(pady=50, padx=20, fill="both", expand=True)
+        
+        ctk.CTkLabel(docs_frame, text="Your Documents", 
+                    font=ctk.CTkFont(size=20, weight="bold")).pack(pady=20)
+        
+        for doc in self.documents:
+            frame = ctk.CTkFrame(docs_frame)
+            frame.pack(fill="x", pady=5)
+            ctk.CTkLabel(frame, text=os.path.basename(doc["path"])).pack(side="left", padx=10)
+            
+            btn_frame = ctk.CTkFrame(frame)
+            btn_frame.pack(side="right")
+            
+            ctk.CTkButton(btn_frame, text="Open", 
+                         command=lambda d=doc["path"]: os.startfile(d), 
+                         fg_color="#2CC985").pack(side="left", padx=2)
+            ctk.CTkButton(btn_frame, text="Delete", 
+                         command=lambda d=doc["doc_id"]: self.delete_document(d), 
+                         fg_color="#D35B58").pack(side="left", padx=2)
+        
+        ctk.CTkButton(docs_frame, text="Upload New", 
+                     command=self.upload_document, fg_color="#2CC985").pack(pady=10)
+        ctk.CTkButton(docs_frame, text="Back", 
+                     command=self.dashboard, fg_color="gray").pack(pady=10)
+
+    def delete_document(self, doc_id):
+        query = "DELETE FROM documents WHERE doc_id = %s"
+        cursor.execute(query, (doc_id,))
+        conn.commit()
+        self.fetch_user_documents()
+        self.view_documents()
+
+    def analysis_section(self):
+        self.clear_content()
+        analysis_frame = ctk.CTkFrame(self.content_area)
+        analysis_frame.pack(pady=50, padx=20, fill="both", expand=True)
+        
+        ctk.CTkLabel(analysis_frame, text="Performance Analysis", 
+                    font=ctk.CTkFont(size=20, weight="bold")).pack(pady=20)
+        
+        completed_tasks = sum(task["completed"] for task in self.tasks)
+        total_tasks = len(self.tasks)
+        ctk.CTkLabel(analysis_frame, text=f"Tasks Completed: {completed_tasks}/{total_tasks}").pack(pady=5)
+        
+        completed_assignments = sum(1 for a in self.assignments if a["completed"])
+        total_assignments = len(self.assignments)
+        ctk.CTkLabel(analysis_frame, text=f"Assignments Completed: {completed_assignments}/{total_assignments}").pack(pady=5)
+        
+        ctk.CTkButton(analysis_frame, text="Back", 
+                     command=self.dashboard, fg_color="gray").pack(pady=10)
+
+    def ai_assistant(self):
+        gemini_agent = GeminiAIAgent(self.gemini_api_key)
+        gemini_agent.create_ai_assistant_ui(self.root, self.user_name)
+
+    def logout(self):
+        self.is_logged_in = False
+        self.user_id = None
+        self.user_name = None
+        self.sidebar.pack_forget()
+        self.main_menu()
+
+    def register_user(self):
+        self.clear_content()
+        form_frame = ctk.CTkFrame(self.content_area)
+        form_frame.pack(expand=True, pady=50, padx=20)
+        
+        ctk.CTkLabel(form_frame, text="Create Account", 
+                    font=ctk.CTkFont(size=20, weight="bold")).pack(pady=20)
+        
+        fields = [
+            ("Name", "text"),
+            ("Email", "text"),
+            ("Password", "password"),
+            ("Community Code", "text")
+        ]
+        
+        self.entries = []
+        for i, (label, ftype) in enumerate(fields):
+            ctk.CTkLabel(form_frame, text=label).pack(pady=5)
+            entry = ctk.CTkEntry(form_frame, show="*" if ftype == "password" else "")
+            entry.pack(pady=5, padx=20, fill="x")
+            self.entries.append(entry)
+        
+        button_frame = ctk.CTkFrame(form_frame, fg_color="transparent")
+        button_frame.pack(pady=20)
+        
+        ctk.CTkButton(button_frame, text="Back", 
+                     command=self.main_menu, fg_color="gray").pack(side="left", padx=10)
+        ctk.CTkButton(button_frame, text="Register", 
+                     command=self.save_user).pack(side="right", padx=10)
+
+    def save_user(self):
+        name = self.entries[0].get()
+        email = self.entries[1].get()
+        password = self.entries[2].get()
+        community_code = self.entries[3].get()
+        
+        if not self.is_valid_email(email):
+            ctk.messagebox.showerror("Error", "Invalid email format!")
+            return
+
+        if not (name and email and password):
+            ctk.messagebox.showerror("Error", "Name, Email, and Password are required!")
+            return
+
+        query = "INSERT INTO users (name, email, password, community_code) VALUES (%s, %s, %s, %s)"
+        cursor.execute(query, (name, email, password, community_code))
+        conn.commit()
+
+        ctk.messagebox.showinfo("Success", "User registered successfully!")
+        self.login_user()
+
+    def login_user(self):
+        self.clear_content()
+        form_frame = ctk.CTkFrame(self.content_area)
+        form_frame.pack(expand=True, pady=50, padx=20)
+        
+        ctk.CTkLabel(form_frame, text="Login", 
+                    font=ctk.CTkFont(size=20, weight="bold")).pack(pady=20)
+        
+        ctk.CTkLabel(form_frame, text="Email:").pack(pady=5)
+        self.email_entry = ctk.CTkEntry(form_frame)
+        self.email_entry.pack(pady=5, padx=20, fill="x")
+        
+        ctk.CTkLabel(form_frame, text="Password:").pack(pady=5)
+        self.password_entry = ctk.CTkEntry(form_frame, show="*")
+        self.password_entry.pack(pady=5, padx=20, fill="x")
+        
+        button_frame = ctk.CTkFrame(form_frame, fg_color="transparent")
+        button_frame.pack(pady=20)
+        
+        ctk.CTkButton(button_frame, text="Back", 
+                     command=self.main_menu, fg_color="gray").pack(side="left", padx=10)
+        ctk.CTkButton(button_frame, text="Login", 
+                     command=self.authenticate_user).pack(side="right", padx=10)
+
+    def authenticate_user(self):
+        email = self.email_entry.get()
+        password = self.password_entry.get()
+        
+        if not self.is_valid_email(email):
+            messagebox.showerror("Error", "Invalid email format!")
+            return
+
+        query = "SELECT user_id, name FROM users WHERE email = %s AND password = %s"
+        cursor.execute(query, (email, password))
+        result = cursor.fetchone()
+
+        if result:
+            self.user_id, self.user_name = result
+            self.is_logged_in = True
+            self.fetch_user_data()
+            messagebox.showinfo("Success", f"Welcome {self.user_name}!")
+            self.dashboard()
+        else:
+            messagebox.showerror("Error", "Invalid credentials!")
+
+    def is_valid_email(self, email):
+        return re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$", email)
+
+    def dashboard(self):
+        self.clear_content()
+        if self.is_logged_in:
+            self.sidebar.pack(side="left", fill="y")
+            self.build_sidebar()
+        
+        header_frame = ctk.CTkFrame(self.content_area, fg_color="transparent")
+        header_frame.pack(fill="x", pady=20)
+        
+        ctk.CTkLabel(header_frame, text=f"Welcome back, {self.user_name}!", 
+                    font=ctk.CTkFont(size=20, weight="bold")).pack(side="left", padx=20)
+        
+        stats_frame = ctk.CTkFrame(self.content_area)
+        stats_frame.pack(fill="both", expand=True, padx=20, pady=10)
+        
+        stats = [
+            ("Current Streak", f"{self.streak_days} days", "#3B8ED0"),
+            ("Total Points", str(self.points), "#2CC985"),
+            ("Pending Tasks", f"{len(self.tasks)}", "#D3A558"),
+            ("Pending Assignments", f"{len(self.assignments)}", "#D35B58")
+        ]
+        
+        for i, (label, value, color) in enumerate(stats):
+            stat_frame = ctk.CTkFrame(stats_frame, fg_color=color, corner_radius=10)
+            stat_frame.grid(row=i//2, column=i%2, padx=10, pady=10, sticky="nsew")
+            
+            ctk.CTkLabel(stat_frame, text=label, 
+                        font=ctk.CTkFont(weight="bold")).pack(pady=5)
+            ctk.CTkLabel(stat_frame, text=value, 
+                        font=ctk.CTkFont(size=24)).pack(pady=10)
+        
+        stats_frame.grid_columnconfigure((0,1), weight=1)
+        stats_frame.grid_rowconfigure((0,1), weight=1)
+    def open_notes_section(self):
+        self.current_note_id = None
+        self.notes_section()
+    def fetch_daily_tasks(self):
+        query = """SELECT task_id, task_name, completed 
+                FROM daily_tasks 
+                WHERE user_id = %s AND created_date = CURDATE()"""
+        cursor.execute(query, (self.user_id,))
+        self.daily_tasks = [{"task_id": row[0], "name": row[1], "completed": row[2]} 
+                        for row in cursor.fetchall()]
+
+    def add_daily_task(self, task_name):
+        query = "INSERT INTO daily_tasks (user_id, task_name) VALUES (%s, %s)"
+        cursor.execute(query, (self.user_id, task_name))
+        conn.commit()
+
+    def update_daily_task_status(self, task_id, completed):
+        query = "UPDATE daily_tasks SET completed = %s WHERE task_id = %s"
+        cursor.execute(query, (completed, task_id))
+        conn.commit()
+
+
+if __name__ == "__main__":
+    app = StudyPlannerApp()
+    app.root.mainloop()
