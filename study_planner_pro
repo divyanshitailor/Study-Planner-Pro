@@ -638,7 +638,7 @@ class StudyPlannerApp:
         cursor.execute(query, (name, email, password, community_code))
         conn.commit()
 
-        ctk.messagebox.showinfo("Success", "User registered successfully!")
+        messagebox.showinfo("Success", "User registered successfully!")
         self.login_user()
 
     def login_user(self):
